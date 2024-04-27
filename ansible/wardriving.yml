@@ -1,0 +1,126 @@
+# This was tested with a raspberry pi (the original), but may work on other boxes
+- name: Install wardriving software onto a machine
+  hosts: all
+  remote_user: pi
+  become: true
+  become_user: root
+
+  vars:
+    key_src: https://www.kismetwireless.net/repos/kismet-release.gpg.key
+    key_dest: /usr/share/keyrings/opera-keyring.gpg
+    key_checksum: sha256:4f5205dc16b8d477687def8b4bfd7346a10f0066f6daa37878cfb9ffe74454b4
+    apt_src: "deb [signed-by={{key_dest}}] https://www.kismetwireless.net/repos/apt/release/{{ansible_lsb.codename}} {{ansible_lsb.codename}} main"
+    sniffing_iface: wlan0
+
+  roles:
+    - proxy-from-host
+    - ntp-from-host
+    - add-apt-repo
+
+  tasks:
+    - name: Installing kismet and other handy tools for wardriving
+      ansible.builtin.package:
+        name:
+          - git
+          - gpsd
+          - kismet
+          - libxml-libxml-perl
+          - libdbi-perl
+          - libdbd-sqlite3-perl
+          - python3-distutils
+          - screen
+      register: install
+      until: install.failed == false
+      retries: 10
+
+    - name: Setting up a service to auto-mount a USB drive if it is present
+      ansible.builtin.copy:
+        content: |
+          [Unit]
+          Description=USB drive
+          
+          [Mount]
+          What=/dev/sda1
+          Where=/mnt
+          Type=ext4
+          Options=defaults,nofail
+        dest: /etc/systemd/system/mnt.mount
+
+    - name: Setting up a service to automatically run kismet
+      ansible.builtin.copy:
+        content: |
+          [Unit]
+          Description=Kismet
+          Wants=mnt.mount
+          After=network.target gpsd.service mnt.mount
+          
+          [Service]
+          ExecStart=/usr/bin/kismet_server
+          WorkingDirectory=-/mnt
+          Restart=always
+          
+          [Install]
+          WantedBy=multi-user.target
+        dest: /etc/systemd/system/kismet.service
+
+    - name: Updating kismet configuration to sniff on {{sniffing_iface}}
+      ansible.builtin.lineinfile:
+        regexp: "^ncsource=.*"
+        path: /etc/kismet/kismet.conf
+        line: "ncsource={{sniffing_iface}}"
+
+    - name: Getting the code for usbkill
+      ansible.builtin.git:
+        repo: https://github.com/hephaest0s/usbkill
+        dest: usbkill
+      register: usbkill
+      until: usbkill.failed == false
+      retries: 10
+
+    - name: Installing usbkill
+      ansible.builtin.shell:
+        chdir: usbkill
+        cmd: python setup.py build install
+
+    - name: Setting up a service to gracefully shutdown when USB devices are plugged in / unplugged
+      ansible.builtin.copy:
+        content: |
+          [Unit]
+          Description=USB kill
+          
+          [Service]
+          ExecStart=/usr/local/bin/usbkill
+          
+          [Install]
+          WantedBy=multi-user.target
+        dest: /etc/systemd/system/usbkill.service
+
+    - name: Getting the code for giskismet
+      ansible.builtin.git:
+        repo: https://github.com/xtr4nge/giskismet.git
+        dest: giskismet
+        force: true
+      register: giskismet
+      until: giskismet.failed == false
+      retries: 10
+
+    - name: Installing giskismet
+      ansible.builtin.shell:
+        chdir: giskismet
+        cmd: "perl Makefile.PL && make && make install"
+
+    - name: Reloading systemd cache and enabling kismet service
+      ansible.builtin.systemd:
+        daemon_reload: true
+        enabled: yes
+        name: kismet
+
+    - name: Enabling usbkill service
+      ansible.builtin.systemd:
+        enabled: yes
+        name: usbkill
+
+    - name: Setup complete, shutting down target machine
+      community.general.shutdown:
+      when: shutdown is undefined or shutdown == true
+      # Allow defining shutdown to a non-true value to avoid the shutdown

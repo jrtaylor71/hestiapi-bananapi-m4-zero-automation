@@ -1,0 +1,51 @@
+- name: Determining the remote username running the deploy
+  become: false
+  ansible.builtin.shell: whoami
+  register: target_username
+
+- name: Setting password for {{target_username.stdout}} to the default (hestia)
+  ansible.builtin.user:
+    name: "{{target_username.stdout}}"
+    password: '$6$aslkjflkdsjf$9y6orLd8NEbJUNg7RgVrQXi94XtZM6CrfD9xFFVphgZ1gbYFONRLPARpkX8zq0ZcLoSYGDvBczJwGyCijUbWV1'
+
+- name: Installing dependencies
+  include_tasks: tasks/dependencies.yml
+
+- name: Setting up MQTT
+  include_tasks: tasks/mqtt.yml
+
+- name: Setting up the LCD screen
+  include_tasks: tasks/lcd-show.yml
+
+- name: Installing Java
+  include_tasks: tasks/java.yml
+
+- name: Setting up the i2c driver
+  include_tasks: tasks/i2c.yml
+
+- name: Setting up OpenHAB
+  include_tasks: tasks/openhab.yml
+
+- name: Setting up hestiapi scripts
+  include_tasks: tasks/hestiapi.yml
+
+- name: Setting up OpenHAB add-ons
+  include_tasks: tasks/openhab_addons.yml
+
+- name: Removing telemetery
+  include_tasks: tasks/disable_telemetry.yml
+
+- name: Setting up turnkey
+  include_tasks: tasks/turnkey.yml
+
+# This project originally used kweb, which worked fine up to and including Debian 10 (buster)
+- name: Setting up kweb
+  include_tasks: tasks/kweb.yml
+
+- name: Cleaning up
+  include_tasks: tasks/cleanup.yml
+
+- name: Shutting down target machine
+  community.general.shutdown:
+  when: shutdown is undefined or shutdown
+  # Allow defining shutdown to a non-true value to avoid the shutdown

@@ -1,0 +1,98 @@
+- name: Removing any old directory used for hestiapi installation
+  ansible.builtin.file:
+    path: git
+    state: absent
+
+- name: Making a temporary directory to run hestiapi installation scripts
+  become: false
+  ansible.builtin.file:
+    path: git
+    state: directory
+
+- name: Checking out hestiapi repo
+  become: false
+  ansible.builtin.git:
+    repo: https://github.com/HestiaPi/hestia-touch-openhab.git
+    #single_branch: true  # commented out because it is not compatible with ansible 2.10
+    version: ONE
+    dest: git/hestia-touch-openhab
+  register: checkout
+  until: checkout.failed == false
+  retries: 10
+
+- name: Copying over scripts directory
+  ansible.builtin.copy:
+    remote_src: true
+    src: git/hestia-touch-openhab/home/pi/scripts
+    dest: .
+
+- name: Making the updateone.sh script executable
+  ansible.builtin.file:
+    path: scripts/updateone.sh
+    mode: +x
+
+- name: Checking to see if the file to avoid contacting 3rd party servers already exists
+  ansible.builtin.stat:
+    path: /tmp/publicip
+  register: publicip
+
+- name: Creating file to avoid contacting third party servers
+  become: false
+  ansible.builtin.file:
+    path: /tmp/publicip
+    mode: 644
+    state: touch
+  when: not publicip.stat.exists
+
+- name: Patching update script to avoid a system reboot
+  ansible.builtin.lineinfile:
+    path: scripts/updateone.sh
+    regexp: "^sudo reboot"
+    line: "#sudo reboot"
+
+- name: Running updateone.sh
+  ansible.builtin.shell:
+    chdir: scripts
+    cmd: ./updateone.sh
+
+- name: Restoring update script to do a system reboot after future updates
+  ansible.builtin.lineinfile:
+    path: scripts/updateone.sh
+    regexp: "^#sudo reboot"
+    line: "sudo reboot"
+
+- name: Fixing script
+  ansible.builtin.copy:
+    dest: scripts/getwifiinfo.sh
+    mode: 0755
+    content: |
+      #!/bin/bash
+      # Returns Wifi signal strength in percentage
+      RSSI=$(/sbin/iwconfig wlan0 | grep 'Signal level' | awk '{print $4}' | sed 's/.*[=:]//g' | cut -d/ -f1);
+      #RSSI=-99
+      #echo $RSSI
+      
+      if [ -z "$RSSI" ]; then
+        echo "-"
+      elif [ $RSSI -le -100 -o $RSSI -eq 0 ]; then
+        echo "0"
+      elif [ $RSSI -ge -50 ]; then
+        echo "100"
+      else
+        echo $[2 * (RSSI + 100)] | bc
+      fi
+
+- name: Setting version to {{hestiapi_version}}
+  ansible.builtin.copy:
+    dest: /home/pi/scripts/gitinstalledversion
+    content: "{{hestiapi_version}}"
+
+- name: Cleaning up temporary directory used for installation scripts
+  ansible.builtin.file:
+    path: git
+    state: absent
+
+- name: Restarting OpenHAB to pick up the additional configuration files
+  ansible.builtin.systemd:
+    state: restarted
+    name: openhab2

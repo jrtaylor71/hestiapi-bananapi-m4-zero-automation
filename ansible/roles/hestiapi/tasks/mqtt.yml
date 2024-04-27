@@ -1,0 +1,196 @@
+- name: Installing mosquitto (MQTT server)
+  ansible.builtin.package:
+    name: mosquitto
+  when: ansible_lsb.codename != "jessie"
+
+# On Debian 8 (jessie), we need to build mosquitto to get it with websockets support
+- name: Removing any mosquitto installations on jessie (dueo to lack of websocket support)
+  ansible.builtin.package:
+    name: mosquitto
+    state: absent
+  when: ansible_lsb.codename == "jessie"
+
+- name: Downloading websockets 2.4.1 source code
+  become: false
+  ansible.builtin.unarchive:
+    src: https://github.com/warmcat/libwebsockets/archive/v2.4.1.zip
+    dest: .
+    remote_src: true
+  when: ansible_lsb.codename == "jessie"
+
+- name: Making a build directory for libwebsockets
+  become: false
+  ansible.builtin.file:
+    path: libwebsockets-2.4.1/build
+    state: directory
+  when: ansible_lsb.codename == "jessie"
+
+- name: Building libwebsockets
+  become: false
+  ansible.builtin.shell:
+    chdir: libwebsockets-2.4.1/build
+    cmd: cmake ..
+  when: ansible_lsb.codename == "jessie"
+
+- name: Installing libwebsockets
+  ansible.builtin.shell:
+    chdir: libwebsockets-2.4.1/build
+    cmd: make install
+  when: ansible_lsb.codename == "jessie"
+
+- name: Running ldconfig
+  ansible.builtin.shell:
+    chdir: libwebsockets-2.4.1/build
+    cmd: ldconfig
+  when: ansible_lsb.codename == "jessie"
+
+- name: Cleaning up temporary directory used to compile websockets
+  ansible.builtin.file:
+    path: libwebsockets-2.4.1
+    state: absent
+  when: ansible_lsb.codename == "jessie"
+
+# v1.4.9 was the version that was shipped with the HestiaPi 1.2 image
+# The latest version that compiles on jessie is 1.5.11 because jessie has
+# OpenSSL 1.0. Mosquitto 1.6.0 and later requires OpenSSL 1.1
+- name: Downloading Mosquitto 1.4.9 source
+  become: false
+  ansible.builtin.unarchive:
+    src: https://mosquitto.org/files/source/mosquitto-1.4.9.tar.gz
+    dest: .
+    remote_src: true
+    validate_certs: false  # not sure why ansible thinks the cert is bad?
+  when: ansible_lsb.codename == "jessie"
+
+- name: Enabling websockets in the mosquitto configuration
+  become: false
+  ansible.builtin.lineinfile:
+    path: mosquitto-1.4.9/config.mk
+    regexp: WITH_WEBSOCKETS:=no
+    line: WITH_WEBSOCKETS:=yes
+  when: ansible_lsb.codename == "jessie"
+
+- name: Building mosquitto with websocket support
+  become: false
+  ansible.builtin.shell:
+    chdir: mosquitto-1.4.9
+    cmd: make
+  when: ansible_lsb.codename == "jessie"
+
+- name: Installing mosquitto with websocket support
+  ansible.builtin.shell:
+    chdir: mosquitto-1.4.9
+    cmd: make install
+  when: ansible_lsb.codename == "jessie"
+
+- name: Making a build directory for mosquitto configuration files
+  ansible.builtin.file:
+    path: /etc/mosquitto
+    state: directory
+  when: ansible_lsb.codename == "jessie"
+
+- name: Copying over the default mosquitto configuration file
+  ansible.builtin.copy:
+    src: mosquitto-1.4.9/mosquitto.conf
+    dest: /etc/mosquitto/mosquitto.conf
+    remote_src: true
+  when: ansible_lsb.codename == "jessie"
+
+- name: Determining the remote username running the deploy
+  become: false
+  ansible.builtin.shell: whoami
+  register: target_username
+
+- name: Configuring mosquitto to run as the {{target_username.stdout}} user
+  ansible.builtin.lineinfile:
+    path: /etc/mosquitto/mosquitto.conf
+    line: user {{target_username.stdout}}
+  when: ansible_lsb.codename == "jessie"
+
+- name: Removing mosquitto from rc.d
+  ansible.builtin.shell:
+    cmd: update-rc.d mosquitto remove
+  when: ansible_lsb.codename == "jessie"
+
+- name: Creating .service file for mosquitto
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/mosquitto.service
+    content: |
+      [Unit]
+      Description=MQTT v3.1 message broker
+      After=network.target
+      Requires=network.target
+      
+      [Service]
+      Type=simple
+      ExecStart=/usr/local/sbin/mosquitto -c /etc/mosquitto/mosquitto.conf
+      Restart=always
+      User={{target_username.stdout}}
+      
+      [Install]
+      WantedBy=multi-user.target
+  when: ansible_lsb.codename == "jessie"
+
+- name: Enabling and starting mosquitto service
+  ansible.builtin.systemd:
+    daemon_reload: true
+    masked: false
+    enabled: true
+    state: started
+    name: mosquitto
+  when: ansible_lsb.codename == "jessie"
+
+- name: Cleaning up temporary directory used to compile mosquitto
+  ansible.builtin.file:
+    path: mosquitto-1.4.9
+    state: absent
+  when: ansible_lsb.codename == "jessie"
+
+- name: Checking to see if there is a /etc/mosquitto/conf.d/ directory
+  ansible.builtin.stat:
+    path: /etc/mosquitto/conf.d
+  register: confd
+
+- name: Adding mosquitto configuration snippet to set up websockets
+  ansible.builtin.copy:
+    dest: /etc/mosquitto/conf.d/websockets.conf
+    content: |
+      port 1883
+      listener 9001
+      protocol websockets
+      allow_anonymous true
+  when: confd.stat.exists and confd.stat.isdir
+
+- name: Adding mosquitto configuration snippet to set up websockets
+  ansible.builtin.blockinfile:
+    dest: /etc/mosquitto/mosquitto.conf
+    block: |
+      port 1883
+      listener 9001
+      protocol websockets
+  when: not confd.stat.exists or not confd.stat.isdir
+
+- name: Checking to see if there is a /var/run/mosquitto/ directory
+  ansible.builtin.stat:
+    path: /var/run/mosquitto
+  register: varrun
+
+- name: Configuring mosquitto to write out its pid file
+  ansible.builtin.lineinfile:
+    path: /etc/mosquitto/mosquitto.conf
+    regexp: "^pid_file .*"
+    line: pid_file /var/run/mosquitto/mosquitto.pid
+  when: varrun.stat.exists and varrun.stat.isdir
+
+- name: Configuring mosquitto to write out its pid file
+  ansible.builtin.lineinfile:
+    path: /etc/mosquitto/mosquitto.conf
+    regexp: "^pid_file .*"
+    line: pid_file /var/run/mosquitto.pid
+  when: not varrun.stat.exists or not varrun.stat.isdir
+
+- name: Restarting mosquitto
+  ansible.builtin.systemd:
+    enabled: true
+    state: restarted
+    name: mosquitto

@@ -1,0 +1,19 @@
+# This playbook will gather facts from a remote machine and dump them into
+# /tmp/setup-dump.json on the local machine. This is extremely useful in
+# writing playbooks as you'll not only know what variables exist, but also
+# what the value is on the target machine.
+#
+# Example of running this on a raspberry pi:
+#   ansible-playbook -u pi -i 192.168.1.2, dump.yml -e target=192.168.1.2
+#
+- name: Dump
+  hosts: "{{ target|default('localhost') }}"
+  tasks:
+    - name: Facts
+      setup:
+    - name: Dump
+      delegate_to: localhost
+      run_once: true
+      copy:
+        content: "{{ hostvars[inventory_hostname] | to_nice_json }}"
+        dest: /tmp/setup-dump.json

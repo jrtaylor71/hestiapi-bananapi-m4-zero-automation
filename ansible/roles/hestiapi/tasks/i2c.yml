@@ -1,0 +1,16 @@
+- name: Checking to see if /etc/modules-load.d/ is enabled on this system
+  ansible.builtin.stat:
+    path: /etc/modules-load.d/
+  register: dotd
+
+- name: Ensuring the i2c driver is loaded on boot
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/i2c.conf
+    content: i2c_dev
+  when: dotd.stat.exists
+
+- name: Ensuring the i2c driver is loaded on boot
+  ansible.builtin.lineinfile:
+    path: /etc/modules
+    line: i2c_dev
+  when: not dotd.stat.exists

@@ -1,0 +1,35 @@
+# This playbook makes the target use the same NTP server as the deployer.
+- name: Checking local machine to see if it has NTP_SERVER set
+  ansible.builtin.set_fact:
+    NTP_SERVER: "{{ lookup('env','NTP_SERVER') }}"
+  delegate_to: localhost
+
+- name: Displaying NTP server that will be used
+  ansible.builtin.debug:
+    msg: "{{NTP_SERVER}}"
+
+- name: Making sure NTP_SERVER is set on the target
+  ansible.builtin.lineinfile:
+    path: /etc/systemd/timesyncd.conf
+    regexp: "#?NTP=.*"
+    line: NTP={{NTP_SERVER}}
+  when: NTP_SERVER != ""
+
+- name: Restarting systemd-timesyncd service
+  ansible.builtin.systemd:
+    enabled: yes
+    state: restarted
+    name: systemd-timesyncd
+  when: NTP_SERVER != ""
+
+- name: Making sure ntp is enabled in timedatectl
+  ansible.builtin.shell:
+    cmd: timedatectl set-ntp true
+
+- name: Waiting for time to synchronize before continuing
+  ansible.builtin.shell:
+    cmd: "timedatectl status | grep 'synchronized' | sed 's/.*: *//g'"
+  register: timestatus
+  until: timestatus.stdout == "yes"
+  delay: 60
+  retries: 60

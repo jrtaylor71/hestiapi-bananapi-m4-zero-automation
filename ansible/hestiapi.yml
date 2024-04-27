@@ -1,0 +1,36 @@
+##
+# Prerequisites:
+#   - you can SSH into the target machine as the remote_user without interaction
+#   - remote_user can use sudo
+#     - if a password is required, you'll need --ask-become-pass when deploying
+#
+# To deploy, fron the ansible directory:
+#   ansible-playbook -i "192.168.0.68," hestiapi.yml
+#
+#   The example above uses 192.168.0.68 as the target machine. The comma at the
+#   end is not a typo. That is what tells ansible this is a list of hosts and
+#   not an inventory file.
+#
+# To deploy when SSH is using a non-standard port and ignore SSH host fingerprint
+# changes (e.g. when deploying to a VM), the command would look something like:
+#   ansible-playbook -i "localhost," --ssh-extra-args "-p 5022 -o StrictHostKeyChecking=no" hestiapi.yml
+#
+# Tested on:
+#   - Debian 9 (stretch)
+##
+- name: Make a machine into a hestia pi
+  hosts: all
+  remote_user: pi
+  become: true
+  become_user: root
+
+  vars:
+    # partition to resize is sda2 in a VM, but mmcblk0p2 on real hardware
+    device: mmcblk0
+    partition_1: mmcblk0p1
+    partition_2: mmcblk0p1
+
+  roles:
+    - resizefs
+    - fixrepos
+    - hestiapi

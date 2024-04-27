@@ -1,0 +1,6 @@
+# The device that should be resized
+device: mmcblk0
+# The name of the first partition
+partition_1: mmcblk0p1
+# The name of the second partition (which should be resized)
+partition_2: mmcblk0p2

@@ -1,0 +1,82 @@
+# This requires more memory than the pi has available, so we set up swap
+- name: Setting up a file to use as extra swap space for installing kweb
+  ansible.builtin.shell:
+    cmd: dd if=/dev/zero of=/swap1 bs=$((1024*1024)) count=256
+  when: ansible_lsb.codename == "jessie" or ansible_lsb.codename == "stretch" or ansible_lsb.codename == "buster"
+
+- name: Setting permissions on swap file
+  ansible.builtin.file:
+    path: /swap1
+    mode: 600
+  when: ansible_lsb.codename == "jessie" or ansible_lsb.codename == "stretch" or ansible_lsb.codename == "buster"
+
+- name: Making a new swap file
+  ansible.builtin.shell:
+    cmd: mkswap /swap1
+  when: ansible_lsb.codename == "jessie" or ansible_lsb.codename == "stretch" or ansible_lsb.codename == "buster"
+
+- name: Activating the new swap file
+  ansible.builtin.shell:
+    cmd: swapon /swap1
+  when: ansible_lsb.codename == "jessie" or ansible_lsb.codename == "stretch" or ansible_lsb.codename == "buster"
+
+- name: Downloading kweb
+  ansible.builtin.get_url:
+    checksum: sha256:1ed93166df8761891c30c0ed9c29872b7e09c416040492406b2081f9083e0e8b
+    url: https://www.hax0rbana.org/mirror/kweb-1.7.9.8.tar.gz
+    dest: ./kweb-1.7.9.8.tar.gz
+    validate_certs: false
+    # We have the checksum to verify integrity and jessie doesn't recognize the new LetsEncrypt certs
+  register: download
+  until: download.failed == false
+  when: ansible_lsb.codename == "jessie" or ansible_lsb.codename == "stretch" or ansible_lsb.codename == "buster"
+  retries: 50
+
+- name: Unpacking kweb
+  ansible.builtin.unarchive:
+    src: kweb-1.7.9.8.tar.gz
+    dest: .
+    remote_src: true
+  when: ansible_lsb.codename == "jessie" or ansible_lsb.codename == "stretch" or ansible_lsb.codename == "buster"
+
+- name: Installing kweb
+  ansible.builtin.shell:
+    chdir: kweb-1.7.9.8
+    cmd: ./debinstall
+  when: ansible_lsb.codename == "jessie" or ansible_lsb.codename == "stretch" or ansible_lsb.codename == "buster"
+
+# The debinstall does not work in bullseye and later due to missing dependencies. For those
+# versions, we download the executable and required libraries and run an install script to
+# move them into the correct locations and set up the appropriate symlinks.
+- name: Downloading kweb
+  ansible.builtin.get_url:
+    checksum: sha256:4b69fc8a433c1a0daf25723dc77c48362fe69af91b9e6519770e09bf0a4fb31a
+    url: https://hax0rbana.org/mirror/webkit-old.tar.xz
+    dest: ./webkit-old.tar.xz
+  register: download
+  until: download.failed == false
+  when: ansible_lsb.codename == "bullseye"
+  retries: 50
+
+- name: Unpacking kweb
+  ansible.builtin.unarchive:
+    src: webkit-old.tar.xz
+    dest: .
+    remote_src: true
+  when: ansible_lsb.codename == "bullseye"
+
+- name: Installing kweb
+  ansible.builtin.shell:
+    cmd: ./webkit-old.install
+  when: ansible_lsb.codename == "bullseye"
+
+- name: Turning off extra swap space
+  ansible.builtin.shell:
+    cmd: swapoff /swap1
+  when: ansible_lsb.codename == "jessie" or ansible_lsb.codename == "stretch" or ansible_lsb.codename == "buster"
+
+- name: Removing swap file
+  ansible.builtin.file:
+    path: /swap1
+    state: absent
+  when: ansible_lsb.codename == "jessie" or ansible_lsb.codename == "stretch" or ansible_lsb.codename == "buster"

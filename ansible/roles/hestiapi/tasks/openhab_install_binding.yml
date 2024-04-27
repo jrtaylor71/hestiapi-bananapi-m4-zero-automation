@@ -1,0 +1,22 @@
+- name: Attempting to install the {{ binding }} binding for OpenHAB
+  become: false
+  ansible.builtin.uri:
+    url: http://localhost:8080/rest/extensions/{{ binding }}/install
+    method: POST
+    body_format: json
+    body:
+      id: "{{binding}}"
+  register: response
+  until: response.status == 200
+  retries: 180
+  delay: 10
+
+- name: Waiting for the {{ binding }} binding installation to complete
+  become: false
+  ansible.builtin.uri:
+    url: http://localhost:8080/rest/bindings
+    return_content: true
+  register: response
+  until: response.status == 200 and response.json | json_query("contains([*].id, 'exec')")
+  retries: 180
+  delay: 10

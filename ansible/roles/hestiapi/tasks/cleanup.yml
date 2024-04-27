@@ -1,0 +1,54 @@
+- name: Disabling exim4 on systems that have it installed
+  ansible.builtin.systemd:
+    enabled: false
+    state: stopped
+    name: "exim4.service"
+  when: ansible_lsb.codename == "jessie" or ansible_lsb.codename == "stretch" or ansible_lsb.codename == "buster"
+
+- name: Disabling services that we do not need running
+  ansible.builtin.systemd:
+    enabled: false
+    state: stopped
+    name: "{{item}}"
+  loop:
+    - "accounts-daemon.service"
+    - "alsa-restore.service"
+    - "alsa-state.service"
+    - "avahi-daemon.socket"
+    - "avahi-daemon.service"
+    - "bluetooth.service"
+    - "ModemManager.service"
+
+- name: Masking off services that will come back otherwise
+  ansible.builtin.systemd:
+    masked: true
+    name: "{{item}}"
+  loop:
+    - "alsa-restore.service"
+    - "alsa-state.service"
+    - "bluetooth.service"
+
+- name: Removing NTP configuration from the build environment
+  ansible.builtin.file:
+    path: /etc/systemd/timesyncd.conf
+    state: absent
+
+- name: Removing authorized SSH keys file
+  ansible.builtin.file:
+    path: .ssh/authorized_keys
+    state: absent
+
+- name: Making sure proxy info is no longer set on the target
+  ansible.builtin.lineinfile:
+    path: .profile
+    regexp: export [Hh][Tt][Tt][Pp][Ss]?_[Pp][Rr][Oo][Xx][Yy]=.*
+    state: absent
+
+- name: Zeroing out free space to improve compression of the image
+  ansible.builtin.shell:
+    cmd: dd if=/dev/zero of=zero || true; rm zero
+
+- name: Cleaning up shell hisotry
+  ansible.builtin.file:
+    path: .bash_history
+    state: absent

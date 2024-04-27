@@ -1,0 +1,49 @@
+# This playbook makes the target use the same HTTP(S) proxies as the deployer.
+
+- name: Checking local machine to see if it has HTTP_PROXY set
+  ansible.builtin.set_fact:
+    HTTP_PROXY: "{{ lookup('env','HTTP_PROXY') }}"
+  delegate_to: localhost
+
+- name: Checking local machine to see if it has HTTPS_PROXY set
+  ansible.builtin.set_fact:
+    HTTPS_PROXY: "{{ lookup('env','HTTPS_PROXY') }}"
+  delegate_to: localhost
+
+- name: Checking local machine to see if it has http_proxy set
+  ansible.builtin.set_fact:
+    http_proxy: "{{ lookup('env','http_proxy') }}"
+  delegate_to: localhost
+
+- name: Checking local machine to see if it has https_proxy set
+  ansible.builtin.set_fact:
+    https_proxy: "{{ lookup('env','https_proxy') }}"
+  delegate_to: localhost
+
+- name: Making sure HTTP_PROXY is set on the target
+  ansible.builtin.lineinfile:
+    path: .profile
+    regexp: export HTTP_PROXY=.*
+    line: export HTTP_PROXY="{{HTTP_PROXY}}"
+  when: HTTP_PROXY != ""
+
+- name: Making sure HTTPS_PROXY is set on the target
+  ansible.builtin.lineinfile:
+    path: .profile
+    regexp: export HTTPS_PROXY=.*
+    line: export HTTPS_PROXY="{{HTTPS_PROXY}}"
+  when: HTTPS_PROXY != ""
+
+- name: Making sure http_proxy is set on the target
+  ansible.builtin.lineinfile:
+    path: .profile
+    regexp: export http_proxy=.*
+    line: export http_proxy="{{http_proxy}}"
+  when: http_proxy != ""
+
+- name: Making sure https_proxy is set on the target
+  ansible.builtin.lineinfile:
+    path: .profile
+    regexp: export https_proxy=.*
+    line: export https_proxy="{{https_proxy}}"
+  when: https_proxy != ""

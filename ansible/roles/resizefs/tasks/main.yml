@@ -1,0 +1,30 @@
+- name: Determining the starting sector of the second partition
+  ansible.builtin.shell:
+    cmd: "fdisk -l /dev/{{device}} | grep {{partition_2}} | awk '{print $2}'"
+  register: p2_start
+
+- name: Checking to see if sfdisk can handle resizing by sectors instead of c,h,s
+  ansible.builtin.shell:
+    cmd: /sbin/sfdisk -h | grep -q cylinder
+  register: cylinder  # rc = 0 if cylinder is found
+  failed_when: false
+
+- name: Resizing partition 2 to use all available space using fdisk
+  ansible.builtin.shell:
+    cmd: 'printf "d\n2\nn\np\n2\n{{p2_start.stdout}}\n\nw\n" | fdisk /dev/{{device}}'
+  failed_when: false
+  when: cylinder.rc == 0
+
+- name: Resizing partition 2 to use all available space, starting as sector {{p2_start.stdout}}
+  ansible.builtin.shell:
+    cmd: 'echo "$(({{p2_start.stdout}}/2))KiB + L -" | sfdisk -N 2 --force /dev/{{device}}'
+  failed_when: false
+  when: cylinder.rc != 0
+
+- name: Re-read the new partition table
+  ansible.builtin.shell:
+    cmd: partprobe /dev/{{ device }}
+
+- name: Resize the filesystem to be as large as the partition
+  ansible.builtin.shell:
+    cmd: resize2fs /dev/{{ partition_2 }}

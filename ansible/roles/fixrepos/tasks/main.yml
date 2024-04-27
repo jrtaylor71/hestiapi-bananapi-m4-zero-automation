@@ -1,0 +1,15 @@
+# Sadly, we need to fix the apt.sources on a default install, as the values that
+# are used out of the box do not work anymore (to be fair jessie is very old)
+- name: Ensure the repos for Debian 8 (jessie) are correct
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list
+    content: deb http://packages.hs-regensburg.de/raspbian/ jessie main contrib non-free rpi
+  when: ansible_lsb.codename == "jessie"
+
+- name: Updating apt sources
+  ansible.builtin.apt:
+    update_cache: true
+
+- name: Making sure there were not previous, unresolved errors in configuring any packages
+  ansible.builtin.shell:
+    cmd: DEBIAN_FRONTEND=noninteractive dpkg --configure -a

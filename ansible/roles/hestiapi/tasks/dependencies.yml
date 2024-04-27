@@ -1,0 +1,127 @@
+# The package installation is a bit messy because of different versions of things
+# needed to be installed on different versions of Debian and due to package names
+# being changed over the years.
+- name: Installing main dependencies
+  ansible.builtin.package:
+    name:
+      - apt-transport-https
+      - bc
+      - git
+      - accountsservice
+      - libssl-dev
+      - build-essential
+      - quilt
+      - devscripts
+      - cmake
+      - libc-ares-dev
+      - daemon
+      - xz-utils
+      - zip
+      - zlib1g
+      - zlib1g-dev
+      - unclutter
+      - matchbox-window-manager
+      - x11-xserver-utils  # for the xset command
+      - xwit
+      - xinit
+      - openbox
+      - lxterminal
+      - geoclue-2.0
+      - dnsmasq
+      - hostapd
+      - vim
+      - python3-flask
+      - python3-requests
+      - uuid-dev
+      - dirmngr
+  register: install
+  until: install.failed == false
+  retries: 10
+
+- name: Installing additional dependencies for Debian 8/9 (jessie/stretch)
+  ansible.builtin.package:
+    name:
+      - libjavascriptcoregtk-3.0-0
+  when: ansible_lsb.codename == "jessie" or ansible_lsb.codename == "stretch"
+
+- name: Installing additional dependencies for Debian 10/11 (buster/bullseye)
+  ansible.builtin.package:
+    name:
+      - libjavascriptcoregtk-4.0-bin
+  when: ansible_lsb.codename == "buster" or ansible_lsb.codename == "bullseye"
+
+- name: Installing specific versions of dependencies for Debian 8 (jessie)
+  ansible.builtin.package:
+    force: true
+    name:
+      - dnsmasq=2.72-3+deb8u5
+      - hostapd
+      - libnl-route-3-200=3.2.24-2
+      - libnl-3-200=3.2.24-2
+      - libnl-genl-3-200=3.2.24-2
+      - libgtk-3-0
+      - vim
+      - vim-common=2:7.4.488-7+deb8u4
+      - findutils=4.4.2-9
+      - python3-flask
+      - python3-jinja2
+      - python3-markupsafe
+      - python3-requests
+      - python
+      - python-setuptools
+      - python-smbus
+      - python3=3.4.2-2
+      - python3.4
+      - python3-minimal=3.4.2-2
+      - libpython3-stdlib=3.4.2-2
+      - python3.4-minimal=3.4.2-1+deb8u7
+      - libpython3.4-stdlib=3.4.2-1+deb8u7
+      - libpython3.4-minimal=3.4.2-1+deb8u7
+      - uuid-dev
+      - libuuid1=2.25.2-6
+      - dirmngr
+      - gnupg=1.4.18-7+deb8u5
+      - libwebkitgtk-3.0-0
+      - libegl1-mesa=10.3.2-1+deb8u2
+  when: ansible_lsb.codename == "jessie"
+
+- name: Installing dependencies for Debian 9/10 (stretch/buster)
+  ansible.builtin.package:
+    name:
+      - python-smbus
+      - libwebkitgtk-3.0-0
+  when: ansible_lsb.codename == "stretch" or (ansible_lsb.codename == "buster" and ansible_architecture != "aarch64")
+
+- name: Installing dependencies that are only for Debian 11 (bullseye)
+  ansible.builtin.package:
+    name:
+      - python3-smbus
+      - libharfbuzz-icu0
+      - libsecret-1-0
+      - libxslt1.1
+      - libgles2
+  when: ansible_lsb.codename == "bullseye"
+
+- name: Installing X11
+  ansible.builtin.package:
+    name:
+      - xserver-xorg
+
+- name: Creating .xinitrc file
+  become: false
+  ansible.builtin.copy:
+    content: |
+      #!/bin/sh
+      exec openbox-session
+    dest: .xinitrc
+    mode: 0755
+
+- name: Setting the x-window manager
+  ansible.builtin.shell:
+    cmd: echo 0 | update-alternatives --config x-window-manager
+
+- name: Enabling network script to configure interfaces when wifi is connected
+  ansible.builtin.copy:
+    src: /etc/wpa_supplicant/ifupdown.sh
+    dest: /etc/ifplugd/action.d/ifupdown
+    remote_src: true

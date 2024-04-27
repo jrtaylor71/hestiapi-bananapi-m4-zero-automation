@@ -1,0 +1,56 @@
+# This role will add a PGP key to a specific destination if it doesn't
+# already exist, add an apt source, and update the apt cache.
+#
+# Variables:
+#   key_src - The URL of the PGP key
+#   key_dest - The path and filename where the key should be stored
+#   key_checksum - algorithm and value of checksum (e.g. sha256:abcdef...42)
+#   apt_src - the line that specifies the apt source
+- name: Checking to see if key is already present
+  ansible.builtin.stat:
+    path: "{{key_dest}}"
+  register: keyring
+
+- name: Generating a filename for the temporary file
+  ansible.builtin.tempfile:
+  register: tempfile
+  when: "ansible_os_family == 'Debian' and not keyring.stat.exists"
+
+- name: Download repo signing key
+  ansible.builtin.get_url:
+    checksum: "{{key_checksum}}"
+    url: "{{key_src}}"
+    dest: "{{tempfile.path}}"
+    mode: '600'
+  when: "ansible_os_family == 'Debian' and not keyring.stat.exists"
+
+- name: Install gpg
+  ansible.builtin.package:
+    name: gnupg
+
+- name: Install repo signing key
+  ansible.builtin.shell:
+    cmd: gpg --dearmor --yes -o {{key_dest}} < {{tempfile.path}}
+  when: "ansible_os_family == 'Debian' and not keyring.stat.exists"
+
+- name: We also add the key using apt-key for older distros that aren't aware of the new paradigm
+  ansible.builtin.shell:
+    cmd: apt-key add - < {{tempfile.path}}
+  when: "ansible_os_family == 'Debian' and ansible_lsb.codename == 'jessie'"
+
+- name: Clean up a temporary copy of the repo signing key
+  ansible.builtin.file:
+    path: "{{ tempfile.path }}"
+    state: absent
+  when: "ansible_os_family == 'Debian' and not keyring.stat.exists"
+
+- name: Add specified repository into sources list
+  ansible.builtin.apt_repository:
+    repo: "{{apt_src}}"
+    state: present
+  when: "ansible_os_family == 'Debian'"
+
+- name: Updating apt cache
+  ansible.builtin.apt:
+    update_cache: true
+  when: ansible_os_family == "Debian"

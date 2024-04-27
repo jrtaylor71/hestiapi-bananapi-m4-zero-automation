@@ -1,0 +1,191 @@
+- name: Checking to see if nodejs is already in /usr/lib
+  ansible.builtin.stat:
+    path: /usr/lib/nodejs
+  register: nodejs_dir
+
+- name: Creating directory for nodejs installation
+  ansible.builtin.file:
+    path: /usr/lib/nodejs
+    state: directory
+  when: not nodejs_dir.stat.exists
+
+- name: Download an unpack nodejs
+  ansible.builtin.unarchive:
+    src: https://nodejs.org/dist/v8.9.4/node-v8.9.4-linux-armv6l.tar.xz
+    dest: /usr/lib/nodejs
+    remote_src: true
+  register: nodejs
+  until: nodejs.failed == false
+  retries: 10
+  when: not nodejs_dir.stat.exists
+
+- name: Setting up NODEJS_HOME environment variable
+  ansible.builtin.lineinfile:
+    path: .profile
+    line: export NODEJS_HOME=/usr/lib/nodejs/node-v8.9.4-linux-armv6l
+
+- name: Updating PATH environment variables to include NODEJS_HOME
+  ansible.builtin.lineinfile:
+    path: .profile
+    line: export PATH=$NODEJS_HOME/bin:$PATH
+
+- name: Checking to see if golang is already in /usr/local
+  ansible.builtin.stat:
+    path: /usr/local/go
+  register: golang_dir
+
+- name: Download an unpack golang
+  ansible.builtin.unarchive:
+    src: https://dl.google.com/go/go1.10.linux-armv6l.tar.gz
+    dest: /usr/local
+    remote_src: true
+  when: not golang_dir.stat.exists
+
+- name: Updating PATH environment variables to include golang
+  ansible.builtin.lineinfile:
+    path: .profile
+    line: export PATH=$PATH:/usr/local/go/bin:$HOME/go/bin
+
+- name: Setting up GOPATH environment variable
+  ansible.builtin.lineinfile:
+    path: .profile
+    line: export GOPATH=$HOME/go
+
+- name: Removing any old copies of the turnkey repo
+  ansible.builtin.file:
+    path: scripts/raspberry-pi-turnkey
+    state: absent
+
+- name: Checking out turnkey repo
+  become: false
+  ansible.builtin.git:
+    repo: https://github.com/anon8675309/raspberry-pi-turnkey.git
+    dest: scripts/raspberry-pi-turnkey
+
+- name: Configuring dhcpcd to listen on wlan0
+  ansible.builtin.lineinfile:
+    path: /etc/dhcpcd.conf
+    line: interface wlan0
+
+- name: Configuring dhcpcd to have a static IP address on first boot
+  ansible.builtin.lineinfile:
+    path: /etc/dhcpcd.conf
+    line: static ip_address=192.168.4.1/24
+
+- name: Configuring dnsmasq
+  ansible.builtin.copy:
+    dest: /etc/dnsmasq.conf
+    content: |
+      interface=wlan0
+      dhcp-range=192.168.4.2,192.168.4.20,255.255.255.0,24h
+    backup: true
+
+- name: Configuring hostapd
+  ansible.builtin.copy:
+    dest: /etc/hostapd/hostapd.conf
+    content: |
+      interface=wlan0
+      driver=nl80211
+      ssid=HESTIAPI
+      hw_mode=g
+      channel=7
+      wmm_enabled=0
+      macaddr_acl=0
+      auth_algs=1
+      ignore_broadcast_ssid=0
+      wpa=2
+      wpa_passphrase=HESTIAPI
+      wpa_key_mgmt=WPA-PSK
+      wpa_pairwise=TKIP
+      rsn_pairwise=CCMP
+
+- name: Updaing dhcpcd command line options
+  ansible.builtin.lineinfile:
+    path: /etc/default/hostapd
+    line: DAEMON_CONF="/etc/hostapd/hostapd.conf"
+
+- name: Removing systemd service file so systemd uses the one in /etc/init.d instead
+  ansible.builtin.file:
+    path: /lib/systemd/system/hostapd.service
+    state: absent
+
+- name: Enabling hostapd
+  ansible.builtin.systemd:
+    enabled: true
+    masked: false
+    daemon_reload: true
+    state: restarted
+    name: hostapd
+  failed_when: false # will fail on a VM due to lack of hardware support
+
+- name: Starting dnsmasq
+  ansible.builtin.systemd:
+    state: restarted
+    name: dnsmasq
+
+- name: Hide the email address field in turnkey
+  ansible.builtin.lineinfile:
+    path: scripts/raspberry-pi-turnkey/templates/index.html
+    backrefs: true
+    regexp: '(.*)type="email"(.*)'
+    line: '\1type="hidden"\2'
+
+- name: Hide the email address field in turnkey
+  ansible.builtin.lineinfile:
+    path: scripts/raspberry-pi-turnkey/templates/index.html
+    backrefs: true
+    regexp: '(<label for="inputEmail">Email address<\/label>)'
+    line: '<!-- \1 -->'
+
+- name: Patch an error in the turnkey startup
+  ansible.builtin.lineinfile:
+    path: scripts/raspberry-pi-turnkey/startup.py
+    regexp: checkwpa = True
+    line: "    checkwpa = False;valid_psk=True"
+
+- name: Update startup scripts to always ensure wifi is unblocked
+  ansible.builtin.blockinfile:
+    path: /etc/rc.local
+    block: |
+      blocked=`rfkill -o ID,TYPE,SOFT list | grep wlan | grep "\bblocked" | awk '{print $1}'`
+      for i in $blocked; do
+        rfkill unblock $i
+      done
+      # and make sure any services won't blocked them in the future either
+      systemctl stop systemd-rfkill.service systemd-rfkill.socket || true
+      systemctl disable systemd-rfkill.service systemd-rfkill.socket || true
+    insertbefore: exit 0
+
+- name: Update startup scripts to run the turnkey scripts
+  ansible.builtin.lineinfile:
+    path: /etc/rc.local
+    line: su pi -c '/usr/bin/sudo /usr/bin/python3 /home/pi/scripts/raspberry-pi-turnkey/startup.py &'
+    insertbefore: exit 0
+
+- name: Update startup scripts to start X for the touchscreen interface
+  ansible.builtin.lineinfile:
+    path: /etc/rc.local
+    line: su -l pi -c 'sudo xinit /home/pi/scripts/kiosk-xinit.sh &'
+    insertbefore: exit 0
+
+- name: Ensring that the rc.local startup script is executable
+  ansible.builtin.file:
+    path: /etc/rc.local
+    mode: +x
+
+- name: Ensuring that we stop turnkey after wifi is configured
+  ansible.builtin.lineinfile:
+    path: scripts/raspberry-pi-turnkey/startup.sh
+    line: ps -ef | grep "[s]tartup.py" | awk '{print $2}' | xargs sudo kill
+
+- name: Removing pointless connection turnkey makes to one of Google's servers
+  ansible.builtin.lineinfile:
+    path: scripts/raspberry-pi-turnkey/startup.py
+    line: "{{item}}"
+    state: absent
+  loop:
+    - '        # get ip address'
+    - '        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)'
+    - '        s.connect(("8.8.8.8", 80))'
+    - '        ipaddress = s.getsockname()[0]'
+    - '        s.close()'

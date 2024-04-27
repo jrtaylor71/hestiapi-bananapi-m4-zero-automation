@@ -1,0 +1,50 @@
+- name: Download OpenHAB repo signing key
+  ansible.builtin.get_url:
+    checksum: sha256:f1eae96aefadbf62ebac5e3596e69190ebcc5968706f984cb091a09cb9c0108b
+    url: https://openhab.jfrog.io/artifactory/api/gpg/key/public
+    dest: /usr/share/keyrings/openhab.asc
+    mode: '644'
+  when: ansible_os_family == 'Debian'
+
+- name: 'Install repo signing key with "apt-key add ..."'
+  ansible.builtin.shell:
+    cmd: apt-key add /usr/share/keyrings/openhab.asc
+  when: ansible_os_family == 'Debian' and ansible_lsb.codename == "jessie"
+
+# Jessie doesn't understand the signed-by attribute, but it will just ignore it
+# so it is safe to put it in the sources file unconditionally
+- name: Add specified repository into sources list
+  ansible.builtin.apt_repository:
+    repo: deb [signed-by=/usr/share/keyrings/openhab.asc] https://openhab.jfrog.io/artifactory/openhab-linuxpkg stable main
+    state: present
+  when: ansible_os_family == 'Debian'
+
+- name: Make sure we have the latest metadata for apt
+  ansible.builtin.apt:
+    update_cache: True
+  when: ansible_os_family == "Debian"
+
+- name: Install the OpenHAB package
+  ansible.builtin.package:
+    name: openhab2
+  register: install
+  until: install.failed == false
+  retries: 10
+
+- name: Adding openhab user to the i2c and gpio groups so it can access the temperature sensor and control relays
+  ansible.builtin.user:
+    append: true
+    groups: i2c, gpio
+    name: openhab
+
+- name: Enabling sudo access for openhab user
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/020_openhab-nopasswd
+    content: |
+      openhab ALL=(ALL) NOPASSWD: ALL
+
+- name: Enabling and starting OpenHAB
+  ansible.builtin.systemd:
+    enabled: yes
+    state: restarted
+    name: openhab2

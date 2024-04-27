@@ -1,0 +1,53 @@
+- name: Installing dependencies for midori browser
+  ansible.builtin.package:
+    name:
+      - cmake
+      - valac
+      - libwebkit2gtk-4.0-dev
+      - libgcr-3-dev
+      - libpeas-dev
+      - libsqlite3-dev
+      - libjson-glib-dev
+      - libarchive-dev
+      - intltool
+      - libxml2-utils
+
+- name: Checking out source code for midori browser v9.0
+  ansible.builtin.git:
+    repo: https://github.com/midori-browser/core
+    dest: midori-browser-core
+    version: "v9.0"
+    single_branch: true
+
+- name: Building and installing Midori
+  ansible.builtin.shell:
+    chdir: midori-browser-core
+    cmd: mkdir _build; cd _build; cmake -DCMAKE_INSTALL_PREFIX=/usr ..; make; sudo make install
+
+- name: Patching X startup scripts to use midori instead of kweb (part 1 of 2)
+  become: false
+  ansible.builtin.replace:
+    path: scripts/kiosk-xinit.sh
+    regexp: '(.*killall -.*) kweb(.*)'
+    replace: '\1 midori\2'
+
+- name: Patching X startup scripts to use midori instead of kweb (part 2 of 2)
+  become: false
+  ansible.builtin.replace:
+    path: scripts/kiosk-xinit.sh
+    regexp: "( *)kweb -KJ ([^ ]*)(.*)"
+    replace: '\1midori -e Fullscreen -a "file://\2"\3'
+
+- name: Patching X startup scripts to have correct comments and echo lines
+  become: false
+  ansible.builtin.replace:
+    path: scripts/kiosk-xinit.sh
+    regexp: "kweb"
+    replace: 'midori'
+
+- name: Patching X startup scripts to never blank the video device
+  become: false
+  ansible.builtin.lineinfile:
+    path: scripts/kiosk-xinit.sh
+    insertafter: "  xset s off"
+    line: "  xset s noblank  # ensure the video device is never blanked out"

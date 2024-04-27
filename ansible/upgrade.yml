@@ -1,0 +1,63 @@
+- name: Upgrade a machine to get all the latest patches
+  hosts: all
+  remote_user: pi
+  become: true
+  become_user: root
+
+  vars:
+    # partition to resize is sda2 in a VM, but mmcblk0p2 on real hardware
+    device: sda
+    partition_1: sda1
+    partition_2: sda2
+
+  roles:
+    - resizefs
+    - proxy-from-host
+    - ntp-from-host
+
+  tasks:
+    - name: Checking to see if we have an apt.conf.d directory
+      ansible.builtin.stat:
+        path: /etc/apt/apt.conf.d
+      register: confd
+
+    - name: Setting HTTP(s) timeout to be 60 seconds for apt
+      ansible.builtin.copy:
+        dest: /etc/apt/apt.conf.d/99-timeout
+        content: |
+          Acquire::http::Timeout "60";
+          Acquire::https::Timeout "60";
+      when: confd.stat.isdir
+
+    - name: Fixing apt sources.list because the ones that ship with jessie no longer work 
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list
+        content: deb http://packages.hs-regensburg.de/raspbian/ jessie main contrib non-free rpi
+      when: ansible_lsb.codename == "jessie"
+
+    - name: Allowing the release info to change (needed on Debian 10 (buster))
+      ansible.builtin.shell: apt-get update --allow-releaseinfo-change
+      when: ansible_lsb.codename == "buster"
+
+    - name: Updating apt cache
+      ansible.builtin.apt:
+        update_cache: true
+      when: ansible_os_family == "Debian"
+
+    - name: Reconfiguring packages in case anything was left in an unclean state
+      ansible.builtin.shell:
+        cmd: dpkg --configure -a
+      when: ansible_os_family == "Debian"
+
+    - name: Upgrading packages
+      ansible.builtin.apt:
+        upgrade: "yes"
+      register: upgrade
+      when: ansible_os_family == "Debian"
+      until: upgrade.failed == false
+      retries: 10
+
+    - name: Shutting down target machine
+      community.general.shutdown:
+      when: shutdown is undefined or shutdown == true
+      # Allow defining shutdown to a non-true value to avoid the shutdown

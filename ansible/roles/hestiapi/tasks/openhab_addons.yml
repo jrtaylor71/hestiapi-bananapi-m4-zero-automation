@@ -1,0 +1,68 @@
+- name: Waiting for OpenHAB to be avilable
+  become: false
+  ansible.builtin.uri:
+    url: http://localhost:8080/
+  register: response
+  until: response.status == 200
+  retries: 180
+  delay: 10
+
+- name: Kicking off the initial OpenHAB setup process
+  become: false
+  ansible.builtin.uri:
+    url: http://localhost:8080/start/index?type=standard
+  register: response
+  until: response.status == 200
+  retries: 180
+  delay: 10
+
+- name: Waiting for initial OpenHAB setup process to complete
+  become: false
+  ansible.builtin.uri:
+    url: http://localhost:8080/rest/services/org.eclipse.smarthome.i18n/config
+    headers:
+      Content-Type: application/json
+  register: response
+  until: response.status == 200
+  retries: 180
+  delay: 10
+
+- name: Waiting for the main OpenHAB page to show the PaperUI
+  become: false
+  ansible.builtin.uri:
+    url: http://localhost:8080/start/index
+    return_content: true
+  register: response
+  until: response.status == 200 and "Paper UI" in response.content
+  retries: 180
+  delay: 10
+
+- name: Installing the Exec binding
+  vars:
+    binding: binding-exec
+  include_tasks: tasks/openhab_install_binding.yml
+
+- name: Installing the HTTP binding
+  vars:
+    binding: binding-http1
+  include_tasks: tasks/openhab_install_binding.yml
+
+- name: Installing the MQTT binding
+  vars:
+    binding: binding-mqtt
+  include_tasks: tasks/openhab_install_binding.yml
+
+- name: Installing the GPIO binding
+  vars:
+    binding: binding-gpio1
+  include_tasks: tasks/openhab_install_binding.yml
+
+- name: Installing the Map tansform
+  vars:
+    transform: transformation-map
+  include_tasks: tasks/openhab_install_transform.yml
+
+- name: Installing the Regex tansform
+  vars:
+    transform: transformation-regex
+  include_tasks: tasks/openhab_install_transform.yml

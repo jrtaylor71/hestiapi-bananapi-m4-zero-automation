@@ -1,0 +1,25 @@
+- name: Checking to see if we already have Zulu 8
+  ansible.builtin.stat:
+    path: /opt/jdk/zulu8.40.0.178-ca-jdk1.8.0_222-linux_aarch64
+  register: zulu8
+
+- name: Making directory for JDK
+  ansible.builtin.file:
+    path: /opt/jdk
+    state: directory
+  when: not zulu8.stat.exists
+
+- name: Download and unpack Zulu 8
+  ansible.builtin.unarchive:
+    src: https://cdn.azul.com/zulu-embedded/bin/zulu8.40.0.178-ca-jdk1.8.0_222-linux_aarch64.tar.gz
+    dest: /opt/jdk
+    remote_src: yes
+  when: not zulu8.stat.exists
+
+- name: Setting default version of java to be Zulu 8
+  ansible.builtin.shell:
+    cmd: update-alternatives --install /usr/bin/java java /opt/jdk/zulu8.40.0.178-ca-jdk1.8.0_222-linux_aarch64/bin/java 8
+
+- name: Setting default version of javac to be Zulu 8
+  ansible.builtin.shell:
+    cmd: update-alternatives --install /usr/bin/javac javac /opt/jdk/zulu8.40.0.178-ca-jdk1.8.0_222-linux_aarch64/bin/javac 8

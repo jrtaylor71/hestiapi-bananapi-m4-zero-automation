@@ -1,0 +1,60 @@
+- name: Removing any old checkouts of LCD-show
+  ansible.builtin.file:
+    path: LCD-show
+    state: absent
+
+- name: Checking out LCD-show repo
+  become: false
+  ansible.builtin.git:
+    repo: https://github.com/goodtft/LCD-show.git
+    dest: LCD-show
+
+- name: Patching LCD configuration tool to avoid a system reboot
+  become: false
+  ansible.builtin.lineinfile:
+    path: LCD-show/LCD35-show
+    regexp: "^sudo reboot"
+    line: "#sudo reboot"
+
+- name: Patching LCD configuration tool to work when IPv6 is not available
+  become: false
+  ansible.builtin.lineinfile:
+    path: LCD-show/LCD35-show
+    regexp: "wget "
+    line: "wget -4 "
+
+- name: Installing xserver-xorg-input-evdev from apt repos
+  ansible.builtin.package:
+    name:
+      - xserver-xorg-input-evdev
+  when: ansible_lsb.codename == "jessie"
+
+- name: Patching LCD configuration tool to ensure Debian 8 (jessie) uses repo version of xserver-xorg-input-evdev
+  become: false
+  ansible.builtin.replace:
+    path: LCD-show/LCD35-show
+    regexp: "input_result=1"
+    replace: "input_result=0"
+  when: ansible_lsb.codename == "jessie"
+
+- name: Running LCD35-show to configure the LCD screen
+  ansible.builtin.shell:
+    chdir: LCD-show
+    cmd: ./LCD35-show
+
+- name: Patching LCD rotation script to avoid a system reboot
+  become: false
+  ansible.builtin.lineinfile:
+    path: LCD-show/rotate.sh
+    regexp: "^sudo reboot"
+    line: "#sudo reboot"
+
+- name: Rotating screen 90 degrees so we can put it back
+  ansible.builtin.shell:
+    chdir: LCD-show
+    cmd: ./rotate.sh 90
+
+- name: Rotating the screen back to overwrite configuration files with correct values
+  ansible.builtin.shell:
+    chdir: LCD-show
+    cmd: ./rotate.sh 0

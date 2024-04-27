@@ -1,0 +1,7 @@
+- name: Diasable script to get public IP address
+  become: false
+  ansible.builtin.copy:
+    content: '#!/bin/sh -e'
+    dest: scripts/getpublicip.sh
+    mode: 0755
+    backup: true
