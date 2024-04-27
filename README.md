@@ -1,3 +1,6 @@
+
+This repo was setup to configure a bananapi m4 zero has a hestiapi. This is a work in progress!!!
+
 # Overview
 This repo is intended to help developers and administrators who want to write
 a script to automatically set up a raspberry pi.  The real target audience are
